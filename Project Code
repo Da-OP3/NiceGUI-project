@@ -11,7 +11,7 @@ scroll_mode = False
 
 app.add_static_files('/videos', ROOT_FOLDER)
 
-# Create CSV with header if it doesn't exist
+# Create CSV if it doesn't exist
 if not os.path.exists(CSV_FILE):
     with open(CSV_FILE, 'w', newline='') as f:
         writer = csv.writer(f)
@@ -32,7 +32,11 @@ def scan_all_videos():
 def get_filtered_videos():
     name_query = name_input.value.strip().lower()
     folder_query = folder_input.value.strip().lower()
-    return [v for v in all_videos if (not name_query or name_query in v['name'].lower()) and (not folder_query or folder_query in v['folder'].lower())]
+    return [
+        v for v in all_videos
+        if (not name_query or name_query in v['name'].lower())
+        and (not folder_query or folder_query in v['folder'].lower())
+    ]
 
 def update_display(selected_index=None):
     global current_index
@@ -52,26 +56,32 @@ def update_display(selected_index=None):
         v = matches[current_index]
 
         with video_gallery:
-            with ui.column().style('justify-content: center; align-items: center; width: 100%; position: relative;'):
-                if current_index > 0:
-                    ui.button('⬆️', on_click=lambda: update_display(current_index - 1)).props('color=primary flat').style('position: absolute; top: 10px;')
-                if current_index < len(matches) - 1:
-                    ui.button('⬇️', on_click=lambda: update_display(current_index + 1)).props('color=primary flat').style('position: absolute; bottom: 10px;')
-                
-                with ui.card().props('class=bg-slate-800').style('width: 100%; max-width: 400px; margin: 40px auto;'):
-                    ui.video(v['url']).style('width: 100%; height: 300px; object-fit: contain; background-color: black; border-radius: 8px')
-                    ui.label(v['name']).style('font-weight: bold; font-size: 1.1rem; color: white')
-                    ui.label(f"Folder: {v['folder']}").style('font-size: 0.85rem; color: white')
+            with ui.row().style('position: relative; width: 100%; justify-content: center; align-items: center;'):
 
-                annotation_input = ui.input(label='Enter annotation...').props('outlined').style('width: 100%; max-width: 400px;')
-                ui.button('💾 Save Annotation', on_click=lambda: save_annotation(v['name'], annotation_input.value)).props('color=accent').style('margin-top: 8px')
-    else:
-        for v in matches:
-            with video_gallery:
-                with ui.card().props('class=bg-slate-800').style('min-width: 280px; flex: 1 1 300px; margin: 8px;'):
-                    ui.video(v['url']).style('width: 100%; height: 200px; object-fit: contain; background-color: black; border-radius: 8px')
+                if current_index > 0:
+                    ui.button('⬅️', on_click=lambda: update_display(current_index - 1)).props('flat color=primary').style(
+                        'position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 2rem;')
+
+                with ui.column().style('max-width: 500px; width: 100%; align-items: center; gap: 10px;'):
+                    ui.video(v['url']).props('autoplay muted loop').style('width: 100%; height: 300px; object-fit: contain; background-color: black; border-radius: 8px')
                     ui.label(v['name']).style('font-weight: bold; font-size: 1.1rem; color: white')
                     ui.label(f"Folder: {v['folder']}").style('font-size: 0.85rem; color: white')
+                    annotation_input = ui.input(label='Enter annotation...').props('outlined').style('width: 100%;')
+                    ui.button('💾 Save Annotation', on_click=lambda: save_annotation(v['name'], annotation_input.value)).props('color=accent')
+
+                if current_index < len(matches) - 1:
+                    ui.button('➡️', on_click=lambda: update_display(current_index + 1)).props('flat color=primary').style(
+                        'position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 2rem;')
+
+    else:
+        with video_gallery:
+            with ui.row().style('flex-wrap: wrap; gap: 16px; justify-content: center;'):
+                for v in matches:
+                    with ui.card().props('class=bg-slate-800').style('width: 300px;'):
+                        ui.video(v['url']).props('controls muted').style(
+                            'width: 100%; height: 180px; object-fit: cover; background-color: black; border-radius: 8px')
+                        ui.label(v['name']).style('font-weight: bold; font-size: 1.1rem; color: white; padding: 4px 0')
+                        ui.label(f"Folder: {v['folder']}").style('font-size: 0.85rem; color: white; padding-bottom: 8px')
 
 def save_annotation(video_name, annotation_text):
     if not annotation_text.strip():
@@ -105,12 +115,11 @@ ui.add_body_html("""
 """)
 
 with ui.column().style('max-width: 1000px; margin: auto; margin-top: 20px; gap: 20px;'):
-    with ui.row().style('gap: 10px; flex-wrap: wrap; justify-content: space-between; align-items: center;'):
-        with ui.row().style('gap: 10px; flex-wrap: nowrap;'):
-            ui.button('Home', on_click=home).props('color=primary')
-            ui.button('Scroll', on_click=toggle_scroll).props('color=secondary')
-            name_input = ui.input(label='Video Name').props('placeholder=Type name...').style('flex: 1')
-            folder_input = ui.input(label='Folder Name').props('placeholder=Type folder...').style('flex: 1')
+    with ui.row().style('gap: 10px; flex-wrap: wrap; justify-content: start; align-items: center;'):
+        ui.button('Home', on_click=home).props('color=primary')
+        ui.button('Scroll', on_click=toggle_scroll).props('color=secondary')
+        name_input = ui.input(label='Video Name').props('placeholder=Type name...').style('flex: 1')
+        folder_input = ui.input(label='Folder Name').props('placeholder=Type folder...').style('flex: 1')
 
     name_input.on('keydown.enter', lambda e: update_display())
     folder_input.on('keydown.enter', lambda e: update_display())
