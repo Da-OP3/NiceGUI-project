@@ -4,8 +4,9 @@ import urllib.parse
 
 ROOT_FOLDER = '.'
 all_videos = []
+current_index = 0
+scroll_mode = False
 
-# Serve the current folder (videos/) at /videos
 app.add_static_files('/videos', ROOT_FOLDER)
 
 def scan_all_videos():
@@ -16,62 +17,84 @@ def scan_all_videos():
                 rel_folder = os.path.relpath(dirpath, ROOT_FOLDER).replace('\\', '/')
                 encoded_folder = urllib.parse.quote(rel_folder) if rel_folder != '.' else ''
                 encoded_file = urllib.parse.quote(file)
+                url_path = f'/videos/{encoded_folder}/{encoded_file}' if encoded_folder else f'/videos/{encoded_file}'
+                display_name = os.path.splitext(file)[0]
+                all_videos.append({'name': display_name, 'folder': rel_folder, 'url': url_path})
 
-                # Build video URL
-                if encoded_folder:
-                    url_path = f'/videos/{encoded_folder}/{encoded_file}'
-                else:
-                    url_path = f'/videos/{encoded_file}'
-
-                video_info = {
-                    'name': file,
-                    'folder': rel_folder,
-                    'url': url_path
-                }
-                all_videos.append(video_info)
-                print('Found video:', video_info)
-
-name_input = ui.input(label='Search by video name (press Enter)')
-folder_input = ui.input(label='Search by folder name (press Enter)')
-video_gallery = ui.row().style('flex-wrap: wrap; gap: 20px; margin-top: 20px;')
-
-def update_display():
+def get_filtered_videos():
     name_query = name_input.value.strip().lower()
     folder_query = folder_input.value.strip().lower()
+    return [v for v in all_videos if (not name_query or name_query in v['name'].lower()) and (not folder_query or folder_query in v['folder'].lower())]
 
+def update_display(selected_index=None):
+    global current_index
+    matches = get_filtered_videos()
     video_gallery.clear()
-
-    matches = [
-        v for v in all_videos
-        if (not name_query or name_query in v['name'].lower()) and
-           (not folder_query or folder_query in v['folder'].lower())
-    ]
 
     if not matches:
         ui.notify('No matching videos found.', type='warning')
         return
 
-    for v in matches:
+    if selected_index is not None and 0 <= selected_index < len(matches):
+        current_index = selected_index
+    else:
+        current_index = 0
+
+    if scroll_mode:
+        v = matches[current_index]
         with video_gallery:
-            with ui.card().tight():
-                ui.video(v['url']).style('width: 300px; height: auto')
-                ui.label(f"File: {v['name']} — Folder: {v['folder']}")
+            with ui.column().style('justify-content: center; align-items: center; width: 100%; position: relative;'):
+                if current_index > 0:
+                    ui.button('⬆️', on_click=lambda: update_display(current_index - 1)).props('color=primary flat').style('position: absolute; top: 10px;')
+                if current_index < len(matches) - 1:
+                    ui.button('⬇️', on_click=lambda: update_display(current_index + 1)).props('color=primary flat').style('position: absolute; bottom: 10px;')
+                with ui.card().props('class=bg-slate-800').style('width: 100%; max-width: 400px; margin: 40px auto;'):
+                    ui.video(v['url']).style('width: 100%; height: 300px; object-fit: contain; background-color: black; border-radius: 8px')
+                    ui.label(v['name']).style('font-weight: bold; font-size: 1.1rem; color: white')
+                    ui.label(f"Folder: {v['folder']}").style('font-size: 0.85rem; color: white')
+    else:
+        for v in matches:
+            with video_gallery:
+                with ui.card().props('class=bg-slate-800').style('min-width: 280px; flex: 1 1 300px; margin: 8px;'):
+                    ui.video(v['url']).style('width: 100%; height: 200px; object-fit: contain; background-color: black; border-radius: 8px')
+                    ui.label(v['name']).style('font-weight: bold; font-size: 1.1rem; color: white')
+                    ui.label(f"Folder: {v['folder']}").style('font-size: 0.85rem; color: white')
 
 def home():
+    global scroll_mode
+    scroll_mode = False
     name_input.set_value('')
     folder_input.set_value('')
     update_display()
 
-with ui.column().style('max-width: 800px; margin: auto; margin-top: 20px; gap: 10px;'):
-    ui.button('Home', on_click=home).props('color=primary')
-    name_input.props('placeholder=Type video name and press Enter')
-    folder_input.props('placeholder=Type folder name and press Enter')
+def toggle_scroll():
+    global scroll_mode
+    scroll_mode = not scroll_mode
+    ui.notify('Scroll mode ON.' if scroll_mode else 'Scroll mode OFF.', type='info')
+    update_display(current_index)
 
-name_input.on('keydown.enter', lambda e: update_display())
-folder_input.on('keydown.enter', lambda e: update_display())
+ui.dark_mode()
+
+ui.add_body_html("""
+<style>
+  body { background-color: #111827; margin: 0; padding: 0; font-family: system-ui, sans-serif; color: white; }
+  label, input, .q-field__label { color: white !important; }
+</style>
+""")
+
+with ui.column().style('max-width: 1000px; margin: auto; margin-top: 20px; gap: 20px;'):
+    with ui.row().style('gap: 10px; flex-wrap: wrap; justify-content: space-between; align-items: center;'):
+        with ui.row().style('gap: 10px; flex-wrap: nowrap;'):
+            ui.button('Home', on_click=home).props('color=primary')
+            ui.button('Scroll', on_click=toggle_scroll).props('color=secondary')
+            name_input = ui.input(label='Video Name').props('placeholder=Type name...').style('flex: 1')
+            folder_input = ui.input(label='Folder Name').props('placeholder=Type folder...').style('flex: 1')
+
+    name_input.on('keydown.enter', lambda e: update_display())
+    folder_input.on('keydown.enter', lambda e: update_display())
+
+    video_gallery = ui.column().style('width: 100%; align-items: center;')
 
 scan_all_videos()
 update_display()
-
 ui.run(port=555)
-
