@@ -1,13 +1,21 @@
 from nicegui import ui, app
 import os
 import urllib.parse
+import csv
 
 ROOT_FOLDER = '.'
+CSV_FILE = 'annotations.csv'
 all_videos = []
 current_index = 0
 scroll_mode = False
 
 app.add_static_files('/videos', ROOT_FOLDER)
+
+# Create CSV with header if it doesn't exist
+if not os.path.exists(CSV_FILE):
+    with open(CSV_FILE, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['Video Name', 'Annotation'])
 
 def scan_all_videos():
     all_videos.clear()
@@ -42,16 +50,21 @@ def update_display(selected_index=None):
 
     if scroll_mode:
         v = matches[current_index]
+
         with video_gallery:
             with ui.column().style('justify-content: center; align-items: center; width: 100%; position: relative;'):
                 if current_index > 0:
                     ui.button('⬆️', on_click=lambda: update_display(current_index - 1)).props('color=primary flat').style('position: absolute; top: 10px;')
                 if current_index < len(matches) - 1:
                     ui.button('⬇️', on_click=lambda: update_display(current_index + 1)).props('color=primary flat').style('position: absolute; bottom: 10px;')
+                
                 with ui.card().props('class=bg-slate-800').style('width: 100%; max-width: 400px; margin: 40px auto;'):
                     ui.video(v['url']).style('width: 100%; height: 300px; object-fit: contain; background-color: black; border-radius: 8px')
                     ui.label(v['name']).style('font-weight: bold; font-size: 1.1rem; color: white')
                     ui.label(f"Folder: {v['folder']}").style('font-size: 0.85rem; color: white')
+
+                annotation_input = ui.input(label='Enter annotation...').props('outlined').style('width: 100%; max-width: 400px;')
+                ui.button('💾 Save Annotation', on_click=lambda: save_annotation(v['name'], annotation_input.value)).props('color=accent').style('margin-top: 8px')
     else:
         for v in matches:
             with video_gallery:
@@ -59,6 +72,15 @@ def update_display(selected_index=None):
                     ui.video(v['url']).style('width: 100%; height: 200px; object-fit: contain; background-color: black; border-radius: 8px')
                     ui.label(v['name']).style('font-weight: bold; font-size: 1.1rem; color: white')
                     ui.label(f"Folder: {v['folder']}").style('font-size: 0.85rem; color: white')
+
+def save_annotation(video_name, annotation_text):
+    if not annotation_text.strip():
+        ui.notify('Annotation is empty.', type='warning')
+        return
+    with open(CSV_FILE, 'a', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow([video_name, annotation_text.strip()])
+    ui.notify('Annotation saved ✅', type='positive')
 
 def home():
     global scroll_mode
