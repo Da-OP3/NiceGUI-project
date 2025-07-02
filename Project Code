@@ -6,30 +6,36 @@ import csv
 ROOT_FOLDER = '.'
 CSV_FILE = 'annotations.csv'
 all_videos = []
-annotations_dict = {}  # Store existing annotations
+annotations_dict = {}
 current_index = 0
 scroll_mode = False
 
 app.add_static_files('/videos', ROOT_FOLDER)
 
-# Load existing annotations
+def apply_dark_style():
+    ui.dark_mode()
+    ui.add_body_html("""
+    <style>
+      body { background-color: #111827; margin: 0; padding: 0; font-family: system-ui, sans-serif; color: white; }
+      label, input, .q-field__label, .q-field__native, .q-placeholder { color: white !important; }
+    </style>
+    """)
+
 def load_annotations():
     annotations_dict.clear()
     if os.path.exists(CSV_FILE):
         with open(CSV_FILE, 'r', newline='') as f:
             reader = csv.reader(f)
-            next(reader, None)  # Skip header
+            next(reader, None)
             for row in reader:
                 if len(row) >= 2:
                     annotations_dict[row[0]] = row[1]
 
-# Get number of annotations
 def get_annotation_progress():
     annotated = sum(1 for v in all_videos if v['name'] in annotations_dict)
     total = len(all_videos)
     return annotated, total
 
-# Create CSV if missing
 if not os.path.exists(CSV_FILE):
     with open(CSV_FILE, 'w', newline='') as f:
         writer = csv.writer(f)
@@ -81,31 +87,24 @@ def update_display(selected_index=None):
         with video_gallery:
             with ui.row().style('position: relative; width: 100%; justify-content: center; align-items: center;'):
                 if current_index > 0:
-                    ui.button('⬅️', on_click=lambda: update_display(current_index - 1)).props('flat color=primary').style(
-                        'position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 2rem;')
-
+                    ui.button('⬅️', on_click=lambda: update_display(current_index - 1)).props('flat color=primary').style('position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 2rem;')
                 with ui.column().style('max-width: 500px; width: 100%; align-items: center; gap: 10px;'):
                     ui.video(v['url']).props('autoplay muted loop').style('width: 100%; height: 300px; object-fit: contain; background-color: black; border-radius: 8px')
                     ui.label(v['name']).style('font-weight: bold; font-size: 1.1rem; color: white')
                     ui.label(f"Folder: {v['folder']}").style('font-size: 0.85rem; color: white')
                     annotation_input = ui.input(label='Enter annotation...').props('outlined').style('width: 100%;')
-
                     if v['name'] in annotations_dict:
                         annotation_input.set_value(annotations_dict[v['name']])
-
                     ui.button('💾 Save Annotation', on_click=lambda: save_annotation(v['name'], annotation_input.value)).props('color=accent')
-
+                    ui.button('🗑️ Remove Annotation', on_click=lambda: remove_annotation(v['name'])).props('color=negative')
                 if current_index < len(matches) - 1:
-                    ui.button('➡️', on_click=lambda: update_display(current_index + 1)).props('flat color=primary').style(
-                        'position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 2rem;')
-
+                    ui.button('➡️', on_click=lambda: update_display(current_index + 1)).props('flat color=primary').style('position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 2rem;')
     else:
         with video_gallery:
             with ui.row().style('flex-wrap: wrap; gap: 16px; justify-content: center;'):
                 for v in matches:
                     with ui.card().props('class=bg-slate-800').style('width: 300px;'):
-                        ui.video(v['url']).props('controls muted').style(
-                            'width: 100%; height: 180px; object-fit: cover; background-color: black; border-radius: 8px')
+                        ui.video(v['url']).props('controls muted').style('width: 100%; height: 180px; object-fit: cover; background-color: black; border-radius: 8px')
                         ui.label(v['name']).style('font-weight: bold; font-size: 1.1rem; color: white; padding: 4px 0')
                         ui.label(f"Folder: {v['folder']}").style('font-size: 0.85rem; color: white; padding-bottom: 8px')
 
@@ -114,15 +113,34 @@ def save_annotation(video_name, annotation_text):
         ui.notify('Annotation is empty.', type='warning')
         return
     annotations_dict[video_name] = annotation_text.strip()
-
     with open(CSV_FILE, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(['Video Name', 'Annotation'])
         for name, ann in annotations_dict.items():
             writer.writerow([name, ann])
-
     ui.notify('Annotation saved ✅', type='positive')
     update_display(current_index)
+
+def remove_annotation(video_name):
+    if video_name in annotations_dict:
+        del annotations_dict[video_name]
+        with open(CSV_FILE, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Video Name', 'Annotation'])
+            for name, ann in annotations_dict.items():
+                writer.writerow([name, ann])
+        ui.notify('Annotation removed 🖑️', type='warning')
+        update_display(current_index)
+    else:
+        ui.notify('No annotation to remove.', type='warning')
+
+def delete_all_annotations():
+    annotations_dict.clear()
+    with open(CSV_FILE, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['Video Name', 'Annotation'])
+    ui.notify('All annotations deleted 💣', type='negative')
+    update_display()
 
 def home():
     global scroll_mode
@@ -142,32 +160,52 @@ def reload_annotations():
     ui.notify('Annotations reloaded 🔄', type='info')
     update_display()
 
-ui.dark_mode()
+@ui.page('/')
+def main_page():
+    apply_dark_style()
+    with ui.column().style('max-width: 1000px; margin: auto; margin-top: 20px; gap: 20px;'):
+        with ui.row().style('gap: 10px; flex-wrap: wrap; justify-content: start; align-items: center;'):
+            ui.button('Home', on_click=home).props('color=primary')
+            ui.button('Scroll', on_click=toggle_scroll).props('color=secondary')
+            ui.button('🔄 Reload Annotations', on_click=reload_annotations).props('color=accent')
+            ui.button('🧸 Delete All Annotations', on_click=delete_all_annotations).props('color=negative')
+            ui.button('➕ Upload Videos', on_click=lambda: ui.navigate.to('/upload')).props('color=accent')
+        with ui.row().style('gap: 10px; width: 100%; flex-wrap: wrap;'):
+            global name_input, folder_input
+            name_input = ui.input(label='Video Name').props('placeholder=Type name...').style('flex: 1; min-width: 200px')
+            folder_input = ui.input(label='Folder Name').props('placeholder=Type folder...').style('flex: 1; min-width: 200px')
+        name_input.on('keydown.enter', lambda e: update_display())
+        folder_input.on('keydown.enter', lambda e: update_display())
+        global progress_label, video_gallery
+        progress_label = ui.label().style('font-size: 1.1rem; color: lightgreen;')
+        video_gallery = ui.column().style('width: 100%; align-items: center;')
+    scan_all_videos()
+    load_annotations()
+    update_display()
 
-ui.add_body_html("""
-<style>
-  body { background-color: #111827; margin: 0; padding: 0; font-family: system-ui, sans-serif; color: white; }
-  label, input, .q-field__label { color: white !important; }
-</style>
-""")
+@ui.page('/upload')
+def upload_page():
+    apply_dark_style()
+    with ui.column().style('max-width: 600px; margin: 40px auto; gap: 20px;'):
+        ui.label('📄 Upload New Videos').style('font-size: 1.5rem; color: white;')
+        existing_folders = sorted({v['folder'] for v in all_videos if v['folder'] != '.'})
+        selected_folder = ui.select(existing_folders, label='Select existing folder (optional)').props('clearable').style('width: 100%;')
+        new_folder_input = ui.input(label='Or create new folder').style('width: 100%;')
+        upload_result = ui.label().style('margin-top: 10px; color: lightgreen;')
 
-with ui.column().style('max-width: 1000px; margin: auto; margin-top: 20px; gap: 20px;'):
-    with ui.row().style('gap: 10px; flex-wrap: wrap; justify-content: start; align-items: center;'):
-        ui.button('Home', on_click=home).props('color=primary')
-        ui.button('Scroll', on_click=toggle_scroll).props('color=secondary')
-        ui.button('🔄 Reload Annotations', on_click=reload_annotations).props('color=accent')
-        name_input = ui.input(label='Video Name').props('placeholder=Type name...').style('flex: 1')
-        folder_input = ui.input(label='Folder Name').props('placeholder=Type folder...').style('flex: 1')
+        def handle_upload(e):
+            folder = new_folder_input.value.strip() or selected_folder.value or ''
+            target_folder = os.path.join(ROOT_FOLDER, folder)
+            os.makedirs(target_folder, exist_ok=True)
+            files = e['files']
+            for file in files:
+                filepath = os.path.join(target_folder, file['name'])
+                file['content'].save(filepath)
+            scan_all_videos()
+            upload_result.text = f'{len(files)} video(s) uploaded to "{folder or "./"}"! ✅'
 
-    name_input.on('keydown.enter', lambda e: update_display())
-    folder_input.on('keydown.enter', lambda e: update_display())
-
-    progress_label = ui.label().style('font-size: 1.1rem; color: lightgreen;')
-
-    video_gallery = ui.column().style('width: 100%; align-items: center;')
-
-scan_all_videos()
-load_annotations()
-update_display()
+        ui.upload(label='Select video(s)...', multiple=True, on_upload=handle_upload).props('accept=.mp4,.webm,.ogg')
+        ui.button('⬅️ Back to Home', on_click=lambda: ui.navigate.to('/')).props('color=primary')
+        upload_result
 
 ui.run(port=555)
