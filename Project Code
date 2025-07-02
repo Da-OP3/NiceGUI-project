@@ -6,12 +6,30 @@ import csv
 ROOT_FOLDER = '.'
 CSV_FILE = 'annotations.csv'
 all_videos = []
+annotations_dict = {}  # Store existing annotations
 current_index = 0
 scroll_mode = False
 
 app.add_static_files('/videos', ROOT_FOLDER)
 
-# Create CSV if it doesn't exist
+# Load existing annotations
+def load_annotations():
+    annotations_dict.clear()
+    if os.path.exists(CSV_FILE):
+        with open(CSV_FILE, 'r', newline='') as f:
+            reader = csv.reader(f)
+            next(reader, None)  # Skip header
+            for row in reader:
+                if len(row) >= 2:
+                    annotations_dict[row[0]] = row[1]
+
+# Get number of annotations
+def get_annotation_progress():
+    annotated = sum(1 for v in all_videos if v['name'] in annotations_dict)
+    total = len(all_videos)
+    return annotated, total
+
+# Create CSV if missing
 if not os.path.exists(CSV_FILE):
     with open(CSV_FILE, 'w', newline='') as f:
         writer = csv.writer(f)
@@ -38,10 +56,16 @@ def get_filtered_videos():
         and (not folder_query or folder_query in v['folder'].lower())
     ]
 
+def update_progress_display():
+    annotated, total = get_annotation_progress()
+    percent = int((annotated / total) * 100) if total > 0 else 0
+    progress_label.text = f'📝 {annotated}/{total} annotated ({percent}%)'
+
 def update_display(selected_index=None):
     global current_index
     matches = get_filtered_videos()
     video_gallery.clear()
+    update_progress_display()
 
     if not matches:
         ui.notify('No matching videos found.', type='warning')
@@ -54,10 +78,8 @@ def update_display(selected_index=None):
 
     if scroll_mode:
         v = matches[current_index]
-
         with video_gallery:
             with ui.row().style('position: relative; width: 100%; justify-content: center; align-items: center;'):
-
                 if current_index > 0:
                     ui.button('⬅️', on_click=lambda: update_display(current_index - 1)).props('flat color=primary').style(
                         'position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 2rem;')
@@ -67,6 +89,10 @@ def update_display(selected_index=None):
                     ui.label(v['name']).style('font-weight: bold; font-size: 1.1rem; color: white')
                     ui.label(f"Folder: {v['folder']}").style('font-size: 0.85rem; color: white')
                     annotation_input = ui.input(label='Enter annotation...').props('outlined').style('width: 100%;')
+
+                    if v['name'] in annotations_dict:
+                        annotation_input.set_value(annotations_dict[v['name']])
+
                     ui.button('💾 Save Annotation', on_click=lambda: save_annotation(v['name'], annotation_input.value)).props('color=accent')
 
                 if current_index < len(matches) - 1:
@@ -87,10 +113,16 @@ def save_annotation(video_name, annotation_text):
     if not annotation_text.strip():
         ui.notify('Annotation is empty.', type='warning')
         return
-    with open(CSV_FILE, 'a', newline='') as f:
+    annotations_dict[video_name] = annotation_text.strip()
+
+    with open(CSV_FILE, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow([video_name, annotation_text.strip()])
+        writer.writerow(['Video Name', 'Annotation'])
+        for name, ann in annotations_dict.items():
+            writer.writerow([name, ann])
+
     ui.notify('Annotation saved ✅', type='positive')
+    update_display(current_index)
 
 def home():
     global scroll_mode
@@ -105,6 +137,11 @@ def toggle_scroll():
     ui.notify('Scroll mode ON.' if scroll_mode else 'Scroll mode OFF.', type='info')
     update_display(current_index)
 
+def reload_annotations():
+    load_annotations()
+    ui.notify('Annotations reloaded 🔄', type='info')
+    update_display()
+
 ui.dark_mode()
 
 ui.add_body_html("""
@@ -118,14 +155,19 @@ with ui.column().style('max-width: 1000px; margin: auto; margin-top: 20px; gap: 
     with ui.row().style('gap: 10px; flex-wrap: wrap; justify-content: start; align-items: center;'):
         ui.button('Home', on_click=home).props('color=primary')
         ui.button('Scroll', on_click=toggle_scroll).props('color=secondary')
+        ui.button('🔄 Reload Annotations', on_click=reload_annotations).props('color=accent')
         name_input = ui.input(label='Video Name').props('placeholder=Type name...').style('flex: 1')
         folder_input = ui.input(label='Folder Name').props('placeholder=Type folder...').style('flex: 1')
 
     name_input.on('keydown.enter', lambda e: update_display())
     folder_input.on('keydown.enter', lambda e: update_display())
 
+    progress_label = ui.label().style('font-size: 1.1rem; color: lightgreen;')
+
     video_gallery = ui.column().style('width: 100%; align-items: center;')
 
 scan_all_videos()
+load_annotations()
 update_display()
+
 ui.run(port=555)
