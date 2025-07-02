@@ -134,6 +134,16 @@ def remove_annotation(video_name):
     else:
         ui.notify('No annotation to remove.', type='warning')
 
+def confirm_delete_all_annotations():
+    dialog = ui.dialog().props('persistent')
+    with dialog:
+        with ui.card().style('padding: 20px; background-color: #1f2937; color: white;'):
+            ui.label('⚠️ Are you sure you want to delete all annotations?').style('font-size: 1.1rem; margin-bottom: 20px;')
+            with ui.row().style('justify-content: center; gap: 20px'):
+                ui.button('Yes, delete all', on_click=lambda: (delete_all_annotations(), dialog.close())).props('color=negative')
+                ui.button('Cancel', on_click=dialog.close).props('color=primary')
+    dialog.open()
+
 def delete_all_annotations():
     annotations_dict.clear()
     with open(CSV_FILE, 'w', newline='') as f:
@@ -168,7 +178,7 @@ def main_page():
             ui.button('Home', on_click=home).props('color=primary')
             ui.button('Scroll', on_click=toggle_scroll).props('color=secondary')
             ui.button('🔄 Reload Annotations', on_click=reload_annotations).props('color=accent')
-            ui.button('🧸 Delete All Annotations', on_click=delete_all_annotations).props('color=negative')
+            ui.button('🧸 Delete All Annotations', on_click=confirm_delete_all_annotations).props('color=negative')
             ui.button('➕ Upload Videos', on_click=lambda: ui.navigate.to('/upload')).props('color=accent')
         with ui.row().style('gap: 10px; width: 100%; flex-wrap: wrap;'):
             global name_input, folder_input
