@@ -3,14 +3,17 @@ import os
 import urllib.parse
 import csv
 
+
 ROOT_FOLDER = '.'
 CSV_FILE = 'annotations.csv'
 all_videos = []
-annotations_dict = {}
+annotations_dict = {}  # name: {'comment': ..., 'description': ..., 'rating': ...}
 current_index = 0
 scroll_mode = False
 
+
 app.add_static_files('/videos', ROOT_FOLDER)
+
 
 def apply_dark_style():
     ui.dark_mode()
@@ -18,28 +21,56 @@ def apply_dark_style():
     <style>
       body { background-color: #111827; margin: 0; padding: 0; font-family: system-ui, sans-serif; color: white; }
       label, input, .q-field__label, .q-field__native, .q-placeholder { color: white !important; }
+      /* Dropdown styling */
+      .q-select__control {
+          background-color: white !important;
+          color: black !important;
+      }
+      .q-select__dropdown-content {
+          background-color: white !important;
+          color: black !important;
+      }
+      .q-item__label {
+          color: black !important;
+      }
+      .q-item--highlighted {
+          background-color: #3b82f6 !important;
+          color: white !important;
+      }
     </style>
     """)
+
 
 def load_annotations():
     annotations_dict.clear()
     if os.path.exists(CSV_FILE):
         with open(CSV_FILE, 'r', newline='') as f:
-            reader = csv.reader(f)
-            next(reader, None)
+            reader = csv.DictReader(f)
             for row in reader:
-                if len(row) >= 2:
-                    annotations_dict[row[0]] = row[1]
+                name = row['Video Name']
+                annotations_dict[name] = {
+                    'comment': row.get('Comment', ''),
+                    'description': row.get('Description', ''),
+                    'rating': row.get('Rating', '')
+                }
+
 
 def get_annotation_progress():
-    annotated = sum(1 for v in all_videos if v['name'] in annotations_dict)
+    counts = {'comment': 0, 'description': 0, 'rating': 0}
     total = len(all_videos)
-    return annotated, total
+    for v in all_videos:
+        data = annotations_dict.get(v['name'], {})
+        for key in counts:
+            if data.get(key):  # non-empty
+                counts[key] += 1
+    return counts, total
+
 
 if not os.path.exists(CSV_FILE):
     with open(CSV_FILE, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['Video Name', 'Annotation'])
+        writer = csv.DictWriter(f, fieldnames=['Video Name', 'Comment', 'Description', 'Rating'])
+        writer.writeheader()
+
 
 def scan_all_videos():
     all_videos.clear()
@@ -53,19 +84,18 @@ def scan_all_videos():
                 display_name = os.path.splitext(file)[0]
                 all_videos.append({'name': display_name, 'folder': rel_folder, 'url': url_path})
 
-def get_filtered_videos():
-    name_query = name_input.value.strip().lower()
-    folder_query = folder_input.value.strip().lower()
-    return [
-        v for v in all_videos
-        if (not name_query or name_query in v['name'].lower())
-        and (not folder_query or folder_query in v['folder'].lower())
-    ]
 
 def update_progress_display():
-    annotated, total = get_annotation_progress()
-    percent = int((annotated / total) * 100) if total > 0 else 0
-    progress_label.text = f'📝 {annotated}/{total} annotated ({percent}%)'
+    counts, total = get_annotation_progress()
+    if total > 0:
+        progress_label.text = (
+            f'💬 Comments: {counts["comment"]}/{total} ({int(100 * counts["comment"]/total)}%) | '
+            f'📝 Descriptions: {counts["description"]}/{total} ({int(100 * counts["description"]/total)}%) | '
+            f'⭐ Ratings: {counts["rating"]}/{total} ({int(100 * counts["rating"]/total)}%)'
+        )
+    else:
+        progress_label.text = 'No videos found.'
+
 
 def update_display(selected_index=None):
     global current_index
@@ -73,32 +103,94 @@ def update_display(selected_index=None):
     video_gallery.clear()
     update_progress_display()
 
+
     if not matches:
         ui.notify('No matching videos found.', type='warning')
         return
+
 
     if selected_index is not None and 0 <= selected_index < len(matches):
         current_index = selected_index
     else:
         current_index = 0
 
+
     if scroll_mode:
         v = matches[current_index]
         with video_gallery:
             with ui.row().style('position: relative; width: 100%; justify-content: center; align-items: center;'):
                 if current_index > 0:
-                    ui.button('⬅️', on_click=lambda: update_display(current_index - 1)).props('flat color=primary').style('position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 2rem;')
+                    ui.button('⬅️', on_click=lambda idx=current_index: update_display(idx - 1)).props('flat color=primary').style('position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 2rem;')
                 with ui.column().style('max-width: 500px; width: 100%; align-items: center; gap: 10px;'):
                     ui.video(v['url']).props('autoplay muted loop').style('width: 100%; height: 300px; object-fit: contain; background-color: black; border-radius: 8px')
                     ui.label(v['name']).style('font-weight: bold; font-size: 1.1rem; color: white')
                     ui.label(f"Folder: {v['folder']}").style('font-size: 0.85rem; color: white')
-                    annotation_input = ui.input(label='Enter annotation...').props('outlined').style('width: 100%;')
-                    if v['name'] in annotations_dict:
-                        annotation_input.set_value(annotations_dict[v['name']])
-                    ui.button('💾 Save Annotation', on_click=lambda: save_annotation(v['name'], annotation_input.value)).props('color=accent')
-                    ui.button('🗑️ Remove Annotation', on_click=lambda: remove_annotation(v['name'])).props('color=negative')
+
+
+                    annotation_type = ui.select(
+                        ['Comment', 'Description', 'Rating'],
+                        label='Annotation Type',
+                        value=None  # no default selected
+                    ).props('clearable').style('width: 100%;')
+
+
+                    annotation_container = ui.column().style('width: 100%;')
+
+
+                    def update_input_field(e=None):
+                        # Clear old inputs before adding new ones
+                        annotation_container.clear()
+                        selected = annotation_type.value
+                        if not selected:
+                            return
+                        video_data = annotations_dict.get(v['name'], {})
+
+
+                        if selected == 'Rating':
+                            value = video_data.get('rating', '')
+                            input_widget = ui.select(list(map(str, range(1, 11))), label='Rating (1–10)').style('width: 100%;')
+                            if value:
+                                input_widget.set_value(value)
+                        else:
+                            key = 'comment' if selected == 'Comment' else 'description'
+                            value = video_data.get(key, '')
+                            input_widget = ui.input(label=f'{selected}...').props('outlined').style('width: 100%;')
+                            if value:
+                                input_widget.set_value(value)
+
+
+                        def save_click():
+                            save_annotation(v['name'], selected.lower(), input_widget.value)
+
+
+                        def remove_click():
+                            remove_annotation(v['name'], selected.lower())
+
+
+                        save_btn = ui.button('💾 Save', on_click=save_click).props('color=accent')
+                        remove_btn = ui.button('🗑️ Remove', on_click=remove_click).props('color=negative')
+
+
+                        annotation_container.add(input_widget)
+                        buttons_row = ui.row().style('gap: 10px; margin-top: 6px;')
+                        buttons_row.add(save_btn)
+                        buttons_row.add(remove_btn)
+                        annotation_container.add(buttons_row)
+
+
+                    annotation_type.on('update:model-value', update_input_field)
+
+
+                    # Do NOT call update_input_field immediately, so input is hidden until selection
+
+
+                    # Add dropdown and container to UI
+                    ui.add(annotation_type)
+                    ui.add(annotation_container)
+
+
                 if current_index < len(matches) - 1:
-                    ui.button('➡️', on_click=lambda: update_display(current_index + 1)).props('flat color=primary').style('position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 2rem;')
+                    ui.button('➡️', on_click=lambda idx=current_index: update_display(idx + 1)).props('flat color=primary').style('position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 2rem;')
     else:
         with video_gallery:
             with ui.row().style('flex-wrap: wrap; gap: 16px; justify-content: center;'):
@@ -108,31 +200,39 @@ def update_display(selected_index=None):
                         ui.label(v['name']).style('font-weight: bold; font-size: 1.1rem; color: white; padding: 4px 0')
                         ui.label(f"Folder: {v['folder']}").style('font-size: 0.85rem; color: white; padding-bottom: 8px')
 
-def save_annotation(video_name, annotation_text):
-    if not annotation_text.strip():
-        ui.notify('Annotation is empty.', type='warning')
-        return
-    annotations_dict[video_name] = annotation_text.strip()
-    with open(CSV_FILE, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['Video Name', 'Annotation'])
-        for name, ann in annotations_dict.items():
-            writer.writerow([name, ann])
-    ui.notify('Annotation saved ✅', type='positive')
+
+def save_annotation(video_name, annotation_type, text):
+    if video_name not in annotations_dict:
+        annotations_dict[video_name] = {}
+    annotations_dict[video_name][annotation_type] = text.strip()
+    write_annotations_to_csv()
+    ui.notify(f'{annotation_type.capitalize()} saved ✅', type='positive')
     update_display(current_index)
 
-def remove_annotation(video_name):
-    if video_name in annotations_dict:
-        del annotations_dict[video_name]
-        with open(CSV_FILE, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['Video Name', 'Annotation'])
-            for name, ann in annotations_dict.items():
-                writer.writerow([name, ann])
-        ui.notify('Annotation removed 🖑️', type='warning')
+
+def remove_annotation(video_name, annotation_type):
+    if video_name in annotations_dict and annotation_type in annotations_dict[video_name]:
+        annotations_dict[video_name][annotation_type] = ''
+        write_annotations_to_csv()
+        ui.notify(f'{annotation_type.capitalize()} removed 🗑️', type='warning')
         update_display(current_index)
     else:
-        ui.notify('No annotation to remove.', type='warning')
+        ui.notify('Nothing to remove.', type='warning')
+
+
+def write_annotations_to_csv():
+    with open(CSV_FILE, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=['Video Name', 'Comment', 'Description', 'Rating'])
+        writer.writeheader()
+        for name in annotations_dict:
+            ann = annotations_dict[name]
+            writer.writerow({
+                'Video Name': name,
+                'Comment': ann.get('comment', ''),
+                'Description': ann.get('description', ''),
+                'Rating': ann.get('rating', '')
+            })
+
 
 def confirm_delete_all_annotations():
     dialog = ui.dialog().props('persistent')
@@ -144,13 +244,13 @@ def confirm_delete_all_annotations():
                 ui.button('Cancel', on_click=dialog.close).props('color=primary')
     dialog.open()
 
+
 def delete_all_annotations():
     annotations_dict.clear()
-    with open(CSV_FILE, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['Video Name', 'Annotation'])
+    write_annotations_to_csv()
     ui.notify('All annotations deleted 💣', type='negative')
     update_display()
+
 
 def home():
     global scroll_mode
@@ -159,16 +259,29 @@ def home():
     folder_input.set_value('')
     update_display()
 
+
 def toggle_scroll():
     global scroll_mode
     scroll_mode = not scroll_mode
     ui.notify('Scroll mode ON.' if scroll_mode else 'Scroll mode OFF.', type='info')
     update_display(current_index)
 
+
 def reload_annotations():
     load_annotations()
     ui.notify('Annotations reloaded 🔄', type='info')
     update_display()
+
+
+def get_filtered_videos():
+    name_query = name_input.value.strip().lower()
+    folder_query = folder_input.value.strip().lower()
+    return [
+        v for v in all_videos
+        if (not name_query or name_query in v['name'].lower())
+        and (not folder_query or folder_query in v['folder'].lower())
+    ]
+
 
 @ui.page('/')
 def main_page():
@@ -193,6 +306,7 @@ def main_page():
     load_annotations()
     update_display()
 
+
 @ui.page('/upload')
 def upload_page():
     apply_dark_style()
@@ -202,6 +316,7 @@ def upload_page():
         selected_folder = ui.select(existing_folders, label='Select existing folder (optional)').props('clearable').style('width: 100%;')
         new_folder_input = ui.input(label='Or create new folder').style('width: 100%;')
         upload_result = ui.label().style('margin-top: 10px; color: lightgreen;')
+
 
         def handle_upload(e):
             folder = new_folder_input.value.strip() or selected_folder.value or ''
@@ -214,8 +329,15 @@ def upload_page():
             scan_all_videos()
             upload_result.text = f'{len(files)} video(s) uploaded to "{folder or "./"}"! ✅'
 
+
         ui.upload(label='Select video(s)...', multiple=True, on_upload=handle_upload).props('accept=.mp4,.webm,.ogg')
         ui.button('⬅️ Back to Home', on_click=lambda: ui.navigate.to('/')).props('color=primary')
         upload_result
 
+
 ui.run(port=555)
+
+
+
+
+
